@@ -1,85 +1,28 @@
 import readline  # noqa: F401
 from dataclasses import dataclass
-# from enum import Enum, auto
 
 
 @dataclass
 class LeftParen:
-    pass
+    def __str__(self) -> str:
+        return "("
 
 
 @dataclass
 class RightParen:
-    pass
+    def __str__(self) -> str:
+        return ")"
 
 
 @dataclass
 class Symbol:
     name: str
 
-# @dataclass
-# class Number:
-#     value: str
+    def __str__(self) -> str:
+        return self.name
 
 
 Token = LeftParen | RightParen | Symbol | int | str
-
-
-# class MultiCharToken(Enum):
-#     symbol = auto()
-#     integer = auto()
-#     string = auto()
-
-
-# def READ(source: str) -> list[Token]:
-#     """
-#     Given a source code string, return tokens
-
-#     >>> READ("()")
-#     [LeftParen(), RightParen()]
-
-#     >>> READ('( "foo")')
-#     [LeftParen(), 'foo', RightParen()]
-
-#     >>> READ('( () 3 "foo" 1)')
-#     [LeftParen(), LeftParen(), RightParen(), 3, 'foo', 1, RightParen()]
-
-#     >>> READ('( () 3 "foo" 999)')
-#     [LeftParen(), LeftParen(), RightParen(), 3, 'foo', 999, RightParen()]
-#     """
-#     tokens: list[Token] = []
-#     inside_token: MultiCharToken | None = None
-#     multi_char_token_text = ""
-
-#     for index, char in enumerate(source):
-#         if not inside_token:
-#             if char == "(":
-#                 tokens.append(LeftParen())
-#             elif char == ")":
-#                 tokens.append(RightParen())
-#             elif char == '"':
-#                 inside_token = MultiCharToken.string
-#             elif char in "0123456789":
-#                 if source[index + 1] not in "0123456789":
-#                     tokens.append(int(char))
-#                 else:
-#                     inside_token = MultiCharToken.integer
-#                     multi_char_token_text += char
-#         elif inside_token is MultiCharToken.string:
-#             if char == '"':
-#                 tokens.append(multi_char_token_text)
-#                 multi_char_token_text = ""
-#                 inside_token = None
-#             else:
-#                 multi_char_token_text += char
-#         elif inside_token is MultiCharToken.integer:
-#             multi_char_token_text += char
-#             if source[index + 1] not in "0123456789":
-#                 tokens.append(int(multi_char_token_text))
-#                 multi_char_token_text = ""
-#                 inside_token = None
-
-#     return tokens
 
 
 def read_str(source: str) -> tuple[str, str]:
@@ -109,46 +52,42 @@ def read_symbol(source: str) -> tuple[Symbol, str]:
     return (Symbol(result), "")
 
 
-def recursive_READ(source: str) -> list[Token]:
+def READ(source: str) -> list[Token]:
     """
     Given a source code string, return tokens
 
-    >>> recursive_READ("()")
+    >>> READ("()")
     [LeftParen(), RightParen()]
 
-    >>> recursive_READ('( "foo")')
+    >>> READ('( "foo")')
     [LeftParen(), 'foo', RightParen()]
 
-    >>> recursive_READ('( () 3 "foo" 12) 66')
+    >>> READ('( () 3 "foo" 12) 66')
     [LeftParen(), LeftParen(), RightParen(), 3, 'foo', 12, RightParen(), 66]
 
-    >>> recursive_READ('abc')
-    [Symbol(name='abc')]
+    >>> READ('abc "foo" +')
+    [Symbol(name='abc'), 'foo', Symbol(name='+')]
 
-    >>> recursive_READ('(->>) 3 "foo" 12 66')
+    >>> READ('(->>) 3 "foo" 12 66')
     [LeftParen(), Symbol(name='->>'), RightParen(), 3, 'foo', 12, 66]
     """
     if source == "":
         return []
     elif source[0] == "(":
-        return [LeftParen()] + recursive_READ(source[1:])
+        return [LeftParen()] + READ(source[1:])
     elif source[0] == ")":
-        return [RightParen()] + recursive_READ(source[1:])
+        return [RightParen()] + READ(source[1:])
     elif source[0] == '"':
         string_token, leftover_source = read_str(source[1:])
-        return [string_token] + recursive_READ(leftover_source)
+        return [string_token] + READ(leftover_source)
     elif source[0] in "0123456789":
         int_token, leftover_source = read_int(source)
-        return [int_token] + recursive_READ(leftover_source)
+        return [int_token] + READ(leftover_source)
     elif source[0] not in " \n\t,;()":
         symbol_token, leftover_source = read_symbol(source)
-        return [symbol_token] + recursive_READ(leftover_source)
+        return [symbol_token] + READ(leftover_source)
     else:
-        return recursive_READ(source[1:])
-
-
-def READ(source: str) -> list[Token]:
-    return []
+        return READ(source[1:])
 
 
 def EVAL(tokens: list[Token]) -> list[Token]:
@@ -156,7 +95,54 @@ def EVAL(tokens: list[Token]) -> list[Token]:
 
 
 def PRINT(tokens: list[Token]) -> str:
-    return "TODO"
+    """
+    Given tokens, return a nicely formatted str of them
+
+    >>> PRINT([LeftParen(), RightParen()])
+    '()'
+
+    >>> PRINT([1])
+    '1'
+
+    >>> PRINT([LeftParen(), Symbol(name='+'), 1, 2, RightParen()])
+    '(+ 1 2)'
+
+    >>> PRINT(READ('(+ 1 (+ 2 3))'))
+    '(+ 1 (+ 2 3))'
+
+    >>> PRINT(READ('(()())'))
+    '(() ())'
+    """
+
+    strs: list[str] = []
+    for index, current in enumerate(tokens):
+        previous = tokens[index - 1] if index > 0 else None
+        upcoming = tokens[index + 1] if index + 1 < len(tokens) else None
+
+        previous_paren = type(previous) in [LeftParen, RightParen]
+        current_paren = type(current) in [LeftParen, RightParen]
+        upcoming_paren = type(upcoming) in [LeftParen, RightParen]
+
+        if not previous:
+            strs.append(str(current))
+        elif current_paren:
+            if previous_paren:
+                if current == previous or not upcoming:
+                    strs.append(str(current))
+                else:
+                    strs.append(f" {current}")
+            else:
+                if upcoming_paren or not upcoming:
+                    strs.append(str(current))
+                else:
+                    strs.append(f" {current}")
+        else:
+            if previous_paren:
+                strs.append(str(current))
+            else:
+                strs.append(f" {current}")
+
+    return "".join(strs)
 
 
 if __name__ == "__main__":
@@ -164,6 +150,6 @@ if __name__ == "__main__":
         try:
             source = input("user> ")
             tokens = READ(source)
-            PRINT(EVAL(tokens))
+            print(PRINT(EVAL(tokens)))
         except EOFError:
             break
