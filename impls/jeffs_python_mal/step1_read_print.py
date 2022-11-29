@@ -22,14 +22,22 @@ class Symbol:
         return self.name
 
 
-Token = LeftParen | RightParen | Symbol | int | str
+@dataclass(frozen=True)
+class StringToken:
+    value: str
+
+    def __str__(self) -> str:
+        return f'"{self.value}"'
 
 
-def read_str(source: str) -> tuple[str, str]:
+Token = LeftParen | RightParen | Symbol | StringToken | int
+
+
+def read_str(source: str) -> tuple[StringToken, str]:
     result = ""
     for index, char in enumerate(source):
         if char == '"':
-            return (result, source[index + 1:])
+            return (StringToken(result), source[index + 1:])
         result += char
     raise EOFError("unbalanced quotes")
 
@@ -60,16 +68,16 @@ def READ(source: str) -> list[Token]:
     [LeftParen(), RightParen()]
 
     >>> READ('( "foo")')
-    [LeftParen(), 'foo', RightParen()]
+    [LeftParen(), StringToken(value='foo'), RightParen()]
 
-    >>> READ('( () 3 "foo" 12) 66')
-    [LeftParen(), LeftParen(), RightParen(), 3, 'foo', 12, RightParen(), 66]
+    >>> READ('( () 3 "foo" 12')
+    [LeftParen(), LeftParen(), RightParen(), 3, StringToken(value='foo'), 12]
 
     >>> READ('abc "foo" +')
-    [Symbol(name='abc'), 'foo', Symbol(name='+')]
+    [Symbol(name='abc'), StringToken(value='foo'), Symbol(name='+')]
 
     >>> READ('(->>) 3 "foo" 12 66')
-    [LeftParen(), Symbol(name='->>'), RightParen(), 3, 'foo', 12, 66]
+    [LeftParen(), Symbol(name='->>'), RightParen(), 3, 12, 66]
     """
     if source == "":
         return []
