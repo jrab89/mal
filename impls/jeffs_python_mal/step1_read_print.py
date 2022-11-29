@@ -2,19 +2,19 @@ import readline  # noqa: F401
 from dataclasses import dataclass
 
 
-@dataclass
-class LeftParen:
+@dataclass(frozen=True)
+class LeftParen():
     def __str__(self) -> str:
         return "("
 
 
-@dataclass
+@dataclass(frozen=True)
 class RightParen:
     def __str__(self) -> str:
         return ")"
 
 
-@dataclass
+@dataclass(frozen=True)
 class Symbol:
     name: str
 
@@ -117,32 +117,42 @@ def PRINT(tokens: list[Token]) -> str:
     strs: list[str] = []
     for index, current in enumerate(tokens):
         previous = tokens[index - 1] if index > 0 else None
-        upcoming = tokens[index + 1] if index + 1 < len(tokens) else None
 
-        previous_paren = type(previous) in [LeftParen, RightParen]
-        current_paren = type(current) in [LeftParen, RightParen]
-        upcoming_paren = type(upcoming) in [LeftParen, RightParen]
-
-        if not previous:
-            strs.append(str(current))
-        elif current_paren:
-            if previous_paren:
-                if current == previous or not upcoming:
-                    strs.append(str(current))
-                else:
-                    strs.append(f" {current}")
-            else:
-                if upcoming_paren or not upcoming:
-                    strs.append(str(current))
-                else:
-                    strs.append(f" {current}")
+        if preceed_with_space(previous, current):
+            strs.append(f" {current}")
         else:
-            if previous_paren:
-                strs.append(str(current))
-            else:
-                strs.append(f" {current}")
+            strs.append(str(current))
 
     return "".join(strs)
+
+
+def preceed_with_space(previous: Token | None, current: Token) -> bool:
+    if not previous:
+        return False
+
+    # `None` here means a non-paren token
+    previous_token_type = (
+        previous if isinstance(previous, LeftParen | RightParen)
+        else None
+    )
+    current_token_type = (
+        current if isinstance(current, LeftParen | RightParen)
+        else None
+    )
+
+    rules: dict[tuple[LeftParen | RightParen | None, LeftParen | RightParen | None], bool] = {
+        (None, LeftParen()): True,            # "something ("
+        (None, RightParen()): False,          # "something)"
+        (None, None): True,                   # "something something"
+        (LeftParen(), LeftParen()): False,    # "(("
+        (LeftParen(), RightParen()): False,   # "()"
+        (LeftParen(), None): False,           # "(something"
+        (RightParen(), LeftParen()): True,    # ") ("
+        (RightParen(), RightParen()): False,  # "))"
+        (RightParen(), None): True,           # ") something"
+    }
+
+    return rules[(previous_token_type, current_token_type)]
 
 
 if __name__ == "__main__":
