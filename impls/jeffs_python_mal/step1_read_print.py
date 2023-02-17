@@ -1,5 +1,7 @@
 import readline  # noqa: F401
 from dataclasses import dataclass
+from typing import Iterable
+import string
 
 
 @dataclass(frozen=True)
@@ -22,119 +24,151 @@ class Symbol:
         return self.name
 
 
-@dataclass(frozen=True)
-class StringToken:
-    value: str
+Token = LeftParen | RightParen | Symbol | str | int
 
-    def __str__(self) -> str:
-        return f'"{self.value}"'
-
-
-Token = LeftParen | RightParen | Symbol | StringToken | int
+_INT_CHARS = set(string.digits)
+_PRINTABLE_ASCII_CHARS = set(string.printable)
+_WHITESPACE_CHARS = set(string.whitespace + ",")
+_SYMBOL_CHARS = _PRINTABLE_ASCII_CHARS - _WHITESPACE_CHARS
+_PARENS = {"(", ")"}
 
 
-def read_str(source: str) -> tuple[StringToken, str]:
-    result = ""
-    for index, char in enumerate(source):
-        if char == '"':
-            return (StringToken(result), source[index + 1:])
-        result += char
-    raise EOFError("unbalanced quotes")
+def _scan_symbol(source: str, symbol_start_index: int) -> tuple[Symbol, int]:
+    """
+    Given a source code string and the index of the first character of a
+    symbol, return the symbol token and the new index to continue lexing
+    at (the index of the first character after the symbol token)
+
+    >>> _scan_symbol('foo bar baz', 4)
+    (Symbol(name='bar'), 7)
+    >>> _scan_symbol('x', 0)
+    (Symbol(name='x'), 1)
+    """
+    for index, char in enumerate(source[symbol_start_index:]):
+        if char in _WHITESPACE_CHARS:
+            symbol_name = source[symbol_start_index:index + symbol_start_index]
+            return (Symbol(symbol_name),
+                    index + symbol_start_index)
+
+    symbol_name = source[symbol_start_index:len(source)]
+    return (Symbol(symbol_name), len(source))
 
 
-def read_int(source: str) -> tuple[int, str]:
-    result = ""
-    for index, char in enumerate(source):
-        if char not in "0123456789":
-            return (int(result), source[index:])
-        result += char
-    return (int(result), "")
+def _scan_int(source: str, int_start_index: int) -> tuple[int, int]:
+    """
+    Given a source code string and the index of the first digit on an int,
+    return the int token and the new index to continue lexing at (the index of
+    the first character after the int token)
+
+    >>> _scan_int('foo 123 baz', 4)
+    (123, 7)
+    >>> _scan_int('0', 0)
+    (0, 1)
+    >>> _scan_int('5)', 0)
+    (5, 1)
+    >>> _scan_int('0invalid', 0)
+    Traceback (most recent call last):
+     ...
+    ValueError: invalid literal for int() with base 10: '0invalid'
+    """
+    for index, char in enumerate(source[int_start_index:]):
+        if char in _WHITESPACE_CHARS | _PARENS:
+            return (int(source[int_start_index:index + int_start_index]),
+                    index + int_start_index)
+
+    return (int(source[int_start_index:len(source)]), len(source))
 
 
-def read_symbol(source: str) -> tuple[Symbol, str]:
-    result = ""
-    for index, char in enumerate(source):
-        if char in " \n\t,;()":
-            return (Symbol(result), source[index:])
-        result += char
-    return (Symbol(result), "")
+def _scan_str(source: str, str_start_index: int) -> tuple[str, int]:
+    """
+    Given a source code string and the index of a double-quote that starts
+    a string token, return the string token and the new index to continue
+    lexing at (the index of the first character after the string token's
+    double quote)
+
+    >>> _scan_str('foo "bar" baz', 4)
+    ('bar', 9)
+    >>> _scan_str('"bar"', 0)
+    ('bar', 5)
+    >>> _scan_str('foo "bar baz', 4)
+    Traceback (most recent call last):
+     ...
+    Exception: unbalanced quotes starting at 4
+    """
+    current_char_index = str_start_index + 1
+    while current_char_index < len(source):
+        if source[current_char_index] == '"':
+            return (source[str_start_index + 1:current_char_index],
+                    current_char_index + 1)
+        current_char_index += 1
+
+    raise Exception(f"unbalanced quotes starting at {str_start_index}")
 
 
-def READ(source: str) -> list[Token]:
+def lex(source: str) -> Iterable[Token]:
     """
     Given a source code string, return tokens
 
-    >>> READ("()")
+    >>> list(lex("()"))
     [LeftParen(), RightParen()]
-
-    >>> READ('( "foo")')
-    [LeftParen(), StringToken(value='foo'), RightParen()]
-
-    >>> READ('( () 3 "foo" 12')
-    [LeftParen(), LeftParen(), RightParen(), 3, StringToken(value='foo'), 12]
-
-    >>> READ('abc "foo" +')
-    [Symbol(name='abc'), StringToken(value='foo'), Symbol(name='+')]
-
-    >>> READ('(->>) 3 "foo" 12 66')
-    [LeftParen(), Symbol(name='->>'), RightParen(), 3, 12, 66]
+    >>> list(lex('( "foo")'))
+    [LeftParen(), 'foo', RightParen()]
+    >>> list(lex('( () 3 "foo" 12'))
+    [LeftParen(), LeftParen(), RightParen(), 3, 'foo', 12]
+    >>> list(lex('abc "foo" +'))
+    [Symbol(name='abc'), 'foo', Symbol(name='+')]
+    >>> list(lex('(->>) 3 "foo" 12 66'))
+    [LeftParen(), Symbol(name='->>)'), 3, 'foo', 12, 66]
+    >>> list(lex("💣"))
+    Traceback (most recent call last):
+     ...
+    Exception: Non-printable-ASCII character at 0
     """
-    if source == "":
-        return []
-    elif source[0] == "(":
-        return [LeftParen()] + READ(source[1:])
-    elif source[0] == ")":
-        return [RightParen()] + READ(source[1:])
-    elif source[0] == '"':
-        string_token, leftover_source = read_str(source[1:])
-        return [string_token] + READ(leftover_source)
-    elif source[0] in "0123456789":
-        int_token, leftover_source = read_int(source)
-        return [int_token] + READ(leftover_source)
-    elif source[0] not in " \n\t,;()":
-        symbol_token, leftover_source = read_symbol(source)
-        return [symbol_token] + READ(leftover_source)
-    else:
-        return READ(source[1:])
+    current_char_index = 0
+    while current_char_index < len(source):
+        if source[current_char_index] not in _PRINTABLE_ASCII_CHARS:
+            raise Exception(
+                f"Non-printable-ASCII character at {current_char_index}"
+            )
+        if source[current_char_index] == "(":
+            current_char_index += 1
+            yield LeftParen()
+        elif source[current_char_index] == ")":
+            current_char_index += 1
+            yield RightParen()
+        elif source[current_char_index] == '"':
+            string_token, new_char_index = _scan_str(source,
+                                                     current_char_index)
+            current_char_index = new_char_index
+            yield string_token
+        elif source[current_char_index] in _INT_CHARS:
+            int_token, new_char_index = _scan_int(source,
+                                                  current_char_index)
+            current_char_index = new_char_index
+            yield int_token
+        elif source[current_char_index] in _SYMBOL_CHARS:
+            symbol_token, new_char_index = _scan_symbol(source,
+                                                        current_char_index)
+            current_char_index = new_char_index
+            yield symbol_token
+        elif source[current_char_index] == '"':
+            str_token, new_char_index = _scan_str(source,
+                                                  current_char_index)
+            current_char_index = new_char_index
+            yield str_token
+        else:
+            current_char_index += 1
 
 
-def EVAL(tokens: list[Token]) -> list[Token]:
+def READ(source: str) -> Iterable[Token]:
+    return lex(source)
+
+
+def EVAL(tokens: Iterable[Token]) -> Iterable[Token]:
     return tokens
 
 
-def PRINT(tokens: list[Token]) -> str:
-    """
-    Given tokens, return a nicely formatted str of them
-
-    >>> PRINT([LeftParen(), RightParen()])
-    '()'
-
-    >>> PRINT([1])
-    '1'
-
-    >>> PRINT([LeftParen(), Symbol(name='+'), 1, 2, RightParen()])
-    '(+ 1 2)'
-
-    >>> PRINT(READ('(+ 1 (+ 2 3))'))
-    '(+ 1 (+ 2 3))'
-
-    >>> PRINT(READ('(()())'))
-    '(() ())'
-    """
-
-    strs: list[str] = []
-    for index, current in enumerate(tokens):
-        previous = tokens[index - 1] if index > 0 else None
-
-        if preceed_with_space(previous, current):
-            strs.append(f" {current}")
-        else:
-            strs.append(str(current))
-
-    return "".join(strs)
-
-
-def preceed_with_space(previous: Token | None, current: Token) -> bool:
+def _preceed_with_space(previous: Token | None, current: Token) -> bool:
     if not previous:
         return False
 
@@ -163,6 +197,34 @@ def preceed_with_space(previous: Token | None, current: Token) -> bool:
     return rules[(previous_token_type, current_token_type)]
 
 
+def PRINT(tokens: Iterable[Token]) -> str:
+    """
+    Given tokens, return a nicely formatted str of them
+    >>> PRINT([LeftParen(), RightParen()])
+    '()'
+    >>> PRINT([1])
+    '1'
+    >>> PRINT([LeftParen(), Symbol(name='+'), 1, 2, RightParen()])
+    '(+ 1 2)'
+    >>> PRINT(READ('(+ 1 (+ 2 3))'))
+    '(+ 1 (+ 2 3))'
+    >>> PRINT(READ('(()())'))
+    '(() ())'
+    >>> PRINT(READ('"abc"'))
+    '"abc"'
+    """
+    strs: list[str] = []
+    previous: Token | None = None
+    for current in tokens:
+        current_str = f'"{current}"' if isinstance(current, str) else str(current)
+        if _preceed_with_space(previous, current):
+            strs.append(" ")
+        strs.append(current_str)
+        previous = current
+
+    return "".join(strs)
+
+
 if __name__ == "__main__":
     while True:
         try:
@@ -171,3 +233,5 @@ if __name__ == "__main__":
             print(PRINT(EVAL(tokens)))
         except EOFError:
             break
+        except Exception as e:
+            print(e)
